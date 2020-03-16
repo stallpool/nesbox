@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<title>NES Box</title>
+
+		<script type="text/javascript" src="./js/jsnes.js"></script>
+		<script type="text/javascript" src="./js/component/client.js"></script>
+		<script type="text/javascript" src="./js/nes.js"></script>
+	</head>
+	<body style="overflow: hidden">
+		<div id="selectbox">
+			<div><div>开始新游戏：</div><select id="selector">
+				<option value="" selected >---</option>
+			</select><button id="btn_start">开始</button></div>
+			<div><div>进入房间：</div><select id="room_selector">
+				<option value="" selected >---</option>
+			</select><button id="btn_enter">进入</button></div>
+		</div>
+		<div id="controlbox" style="display: none; width: 100%; height: 100%;">
+			<canvas id="control_panel"></canvas>
+		</div>
+		<div id="gamebox" style="display: none; margin: auto;">
+			<canvas id="nes_canvas" width="256" height="240"></canvas>
+			<img id="ctl_png" src="./images/ctl.png" style="display: none;" />
+		</div>
+		<script>
+			var client = new nesbox.WebsocketClient('/ws');
+			var selectBox = document.querySelector('#selectbox');
+			var gameBox = document.querySelector('#gamebox');
+			var controlBox = document.querySelector('#controlbox');
+			var selector = document.querySelector('#selector');
+			var roomSelector = document.querySelector('#room_selector');
+			var btnStart = document.querySelector('#btn_start');
+			var btnEnter = document.querySelector('#btn_enter');
+			var nesCanvas = document.querySelector('#nes_canvas');
+			var ctlCanvas = document.querySelector('#control_panel');
+
+			var buttons = [
+				{ x: 158, y: 13, w: 44, h: 16, key: 27 }, // Reset
+				{ x: 213, y: 13, w: 44, h: 16, key: 8 },  // Select -> Backtrace
+				{ x: 268, y: 13, w: 44, h: 16, key: 13 }, // Start  -> Enter
+				{ x: 51, y: 18, w: 41, h: 42, key: 38 },  // ^
+				{ x: 51, y: 109, w: 41, h: 42, key: 40 }, // v
+				{ x: 5, y: 64, w: 41, h: 42, key: 37 },   // <
+				{ x: 95, y: 64, w: 41, h: 42, key: 39 },  // >
+				{ x: 192, y: 71, w: 61, h: 62, key: 65 }, // A --> A
+				{ x: 262, y: 71, w: 61, h: 62, key: 83 }  // B --> S
+			];
+			var pressedButtons = {};
+			function intersect1D(a1, a2, b1, b2) {
+				if (a1 > b2) return false;
+				if (b1 > a2) return false;
+				return true;
+			}
+			function intersect2D(a, b) {
+				return intersect1D(a.x, a.x+a.w, b.x, b.x+b.w) && intersect1D(a.y, a.y+a.h, b.y, b.y+b.h);
+			}
+			function mapButtonDown(touches, w, h, change) {
+				var map = {};
+				for (var i = 0; i < buttons.length; i++) {
+					for (var j = 0; j < touches.length; j++) {
+						var touch = touches[j];
+						var obj = change?{ x: touch.pageY, y: h - touch.pageX + ctlCanvas.offsetLeft }:{ x: touch.pageX, y: touch.pageY };
+						obj.x = obj.x/w*320; obj.y = obj.y/h*160;
+						var max = Math.max(touch.radiusX, touch.radiusY);
+						obj.w = max; obj.h = max; obj.x -= max/2; obj.y -= max/2;
+						if (intersect2D(buttons[i], obj)) {
+							var key = buttons[i].key;
+							map[key] = 1;
+						}
+					}
+				}
+				var pressed = Object.keys(map);
+				pressed.forEach(function (keyS) {
+					var key = parseInt(keyS);
+					if (!pressedButtons[keyS]) {
+						client.request({ cmd: 'nes.key', key: key, type: 'down', room: client._room });
+						pressedButtons[keyS] = 1;
+					}
+				});
+			}
+			function mapButtonUp(touches, w, h, change) {
+				var map = {};
+				for (var i = 0; i < buttons.length; i++) {
+					for (var j = 0; j < touches.length; j++) {
+						var touch = touches[j];
+						var obj = change?{ x: touch.pageY, y: h - touch.pageX + ctlCanvas.offsetLeft }:{ x: touch.pageX, y: touch.pageY };
+						obj.x = obj.x/w*320; obj.y = obj.y/h*160;
+						var max = Math.max(touch.radiusX, touch.radiusY);
+						obj.w = max; obj.h = max; obj.x -= max/2; obj.y -= max/2;
+						if (intersect2D(buttons[i], obj)) {
+							var key = buttons[i].key;
+							map[key] = 1;
+						}
+					}
+				}
+				var pressed = Object.keys(pressedButtons);
+				pressed.forEach(function (keyS) {
+					var key = parseInt(keyS);
+					if (!map[keyS]) {
+						client.request({ cmd: 'nes.key', key: key, type: 'up', room: client._room });
+						delete pressedButtons[keyS];
+					}
+				});
+			}
+			function drawController() {
+				var pen = ctlCanvas.getContext('2d');
+				var ratio = 320.0 / 160.0;
+				var h, w, change = false;
+				if (window.innerWidth > window.innerHeight) {
+					ctlCanvas.setAttribute('width', '320');
+					ctlCanvas.setAttribute('height', '160');
+					h = window.innerHeight;
+					if (h > 320) h = 320;
+					w = h * ratio;
+					if (w > window.innerWidth) {
+						w = window.innerWidth;
+						w = h / ratio;
+					}
+					ctlCanvas.style.width = w + 'px';
+					ctlCanvas.style.height = h + 'px';
+					pen.clearRect(0, 0, 320, 160);
+					pen.save();
+				} else {
+					ctlCanvas.setAttribute('width', '160');
+					ctlCanvas.setAttribute('height', '320');
+					h = window.innerWidth;
+					if (h > 320) h = 320;
+					w = h * ratio;
+					if (w > window.innerHeight) {
+						w = window.innerHeight;
+						h = w / ratio;
+					}
+					ctlCanvas.style.width = h + 'px';
+					ctlCanvas.style.height = w + 'px';
+					pen.clearRect(0, 0, 160, 320);
+					pen.save();
+					pen.rotate(Math.PI/2);
+					pen.translate(0, -160);
+					change = true;
+				}
+				pen.drawImage(document.querySelector('#ctl_png'), 0, 0, 320, 160);
+				pen.restore();
+				document.addEventListener('touchstart', function (evt) {
+					evt.preventDefault();
+					mapButtonDown(evt.touches, w, h, change);
+				}, false);
+				document.addEventListener('touchmove', function (evt) {
+					evt.preventDefault();
+				});
+				document.addEventListener('touchend', function (evt) {
+					evt.preventDefault();
+					mapButtonUp(evt.touches, w, h, change);
+				}, false);
+			}
+
+			client.waitForConnected(10000).then(function () {
+				client.request({ cmd: 'nes.game' });
+				client.request({ cmd: 'nes.list' });
+			});
+
+			client.onRoomMessage(function (obj) {
+				if (obj.key && window.nes) {
+					var nes = window.nes;
+					if (obj.type === 'down') {
+						keyboard(nes.buttonDown, obj.player, { keyCode: obj.key });
+					} else if (obj.type === 'up') {
+						keyboard(nes.buttonUp, obj.player, { keyCode: obj.key });
+					}
+				} else if (obj.games) {
+console.log(obj.games);
+					selector.innerHTML = '';
+					var option = document.createElement('option');
+					option.setAttribute('selected', 'true');
+					option.value = '';
+					option.innerHTML = '---';
+					selector.appendChild(option);
+					obj.games.forEach(function (nes_name) {
+						var option = document.createElement('option');
+						option.value = './rom/' + nes_name;
+						option.appendChild(document.createTextNode(nes_name));
+						selector.appendChild(option);
+					});
+				} else if (obj.rooms) {
+					roomSelector.innerHTML = '';
+					var option = document.createElement('option');
+					option.setAttribute('selected', 'true');
+					option.value = '';
+					option.innerHTML = '---';
+					roomSelector.appendChild(option);
+					obj.rooms.forEach(function (room_obj) {
+						var option = document.createElement('option');
+						option.value = room_obj.room;
+						option.appendChild(document.createTextNode(room_obj.name));
+						roomSelector.appendChild(option);
+					});
+				} else if (obj.p > 0) {
+					if (obj.p < 0) {
+						alert('cannot connect ...');
+						return;
+					}
+					client.bindRoom(obj.room);
+					function key(key, type) {
+						client.request({ cmd: 'nes.key', key: key, type: type, room: client._room });
+					}
+					drawController();
+					document.addEventListener('keyup', function (evt) { key(evt.keyCode, 'up') });
+					document.addEventListener('keydown', function (evt) { key(evt.keyCode, 'down') });
+				}
+			});
+
+			btnEnter.addEventListener('click', function () {
+				var room = roomSelector.value;
+				if (!room) return;
+				selectBox.style.display = 'none';
+				controlBox.style.display = 'block';
+				client.request({ cmd: 'nes.player', room: room });
+			});
+
+			btnStart.addEventListener('click', function () {
+				if (!selector.value) return;
+				selectBox.style.display = 'none';
+				gameBox.style.display = 'block';
+				client.request({ cmd: 'nes.room', name: selector.value.split('/')[2] });
+				nes_load_url('nes_canvas', selector.value);
+			});
+
+			var ratio = 256.0 / 240.0;
+			if (window.innerWidth / window.innerHeight > ratio) {
+				nesCanvas.style.height = window.innerHeight + 'px';
+				nesCanvas.style.width = (window.innerHeight * ratio) + 'px';
+			} else {
+				nesCanvas.style.width = window.innerWidth + 'px';
+				nesCanvas.style.width = (window.innerWidth / ratio) + 'px';
+			}
+		</script>
+	</body>
+</html>

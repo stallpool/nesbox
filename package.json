@@ -1,0 +1,23 @@
+{
+  "name": "nesbox",
+  "version": "1.0.0",
+  "description": "NESBOx",
+  "main": "server/index.js",
+  "scripts": {
+    "test": "echo \"No test\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stallpool/nesbox.git"
+  },
+  "keywords": [
+    "nes",
+    "wifi"
+  ],
+  "author": "Seven Lju",
+  "license": "MIT",
+  "dependencies": {
+    "uuid": "^3.4.0",
+    "ws": "^7.2.1"
+  }
+}
