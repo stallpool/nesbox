@@ -1,6 +1,6 @@
 var SCREEN_WIDTH = 256;
 var SCREEN_HEIGHT = 240;
-var FRAMEBUFFER_SIZE = SCREEN_WIDTH*SCREEN_HEIGHT;
+var FRAMEBUFFER_SIZE = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 var canvas_ctx, image;
 var framebuffer_u8, framebuffer_u32;
@@ -13,90 +13,53 @@ var audio_samples_R = new Float32Array(SAMPLE_COUNT);
 var audio_write_cursor = 0, audio_read_cursor = 0;
 
 var audio_ctx = new window.AudioContext();
+var audio_on = true;
 
 var nes = new jsnes.NES({
-	onFrame: function(framebuffer_24){
-		for(var i = 0; i < FRAMEBUFFER_SIZE; i++) framebuffer_u32[i] = 0xFF000000 | framebuffer_24[i];
+	onFrame: function (framebuffer_24) {
+		for (var i = 0; i < FRAMEBUFFER_SIZE; i++) framebuffer_u32[i] = 0xFF000000 | framebuffer_24[i];
 	},
-	onAudioSample: function(l, r){
+	onAudioSample: function (l, r) {
 		audio_samples_L[audio_write_cursor] = l;
 		audio_samples_R[audio_write_cursor] = r;
 		audio_write_cursor = (audio_write_cursor + 1) & SAMPLE_MASK;
 	},
 });
 
-function playBufferedSound() {
-	var read_buf = audio_queue[0];
-	if (!read_buf) return;
-	if (audio_busy) return;
-   audio_busy = true;
-
-	var audio_buf = audio_ctx.createBuffer(2, AUDIO_BUFFERING, audio_ctx.sampleRate);
-
-	var len = audio_buf.length;
-	var channel_L = audio_buf.getChannelData(0);
-	var channel_R = audio_buf.getChannelData(1);
-	for (var i = 0; i < len; i++) {
-		var src_idx = (audio_read_cursor + i) & SAMPLE_MASK;
-		channel_L[i] = audio_samples_L[src_idx+1];
-		channel_R[i] = audio_samples_R[src_idx+1];
-	}
-	audio_read_cursor = (audio_read_cursor + len) & SAMPLE_MASK;
-	if (audio_read_cursor === 0) audio_queue.shift();
-
-	var audio_src = audio_ctx.createBufferSource();
-	audio_src.buffer = audio_buf;
-	audio_src.connect(audio_ctx.destination);
-	audio_src.start();
-	audio_src.onended = function () {
-		audio_src.disconnect(audio_ctx.destination);
-		audio_src.onended = null;
-		audio_buf = null;
-		audio_src = null;
-		audio_busy = false;
-		playBufferedSound();
-	}
-}
-
-function onAnimationFrame(){
+function onAnimationFrame() {
 	window.requestAnimationFrame(onAnimationFrame);
-	
+
 	image.data.set(framebuffer_u8);
 	canvas_ctx.putImageData(image, 0, 0);
 	nes.frame();
 }
 
-function audio_remain(){
+function audio_remain() {
 	return (audio_write_cursor - audio_read_cursor) & SAMPLE_MASK;
 }
 
-function audio_callback(event){
+function audio_callback(event) {
 	var dst = event.outputBuffer;
 	var len = dst.length;
-	
+
 	// Attempt to avoid buffer underruns.
-	if(audio_remain() < AUDIO_BUFFERING) nes.frame();
-	
-	var dst_l = dst.getChannelData(0);
-	var dst_r = dst.getChannelData(1);
-	for(var i = 0; i < len; i++){
-		var src_idx = (audio_read_cursor + i) & SAMPLE_MASK;
-		dst_l[i] = audio_samples_L[src_idx];
-		dst_r[i] = audio_samples_R[src_idx];
+	if (audio_remain() < AUDIO_BUFFERING) nes.frame();
+
+	if (audio_on) {
+		var dst_l = dst.getChannelData(0);
+		var dst_r = dst.getChannelData(1);
+		for (var i = 0; i < len; i++) {
+			var src_idx = (audio_read_cursor + i) & SAMPLE_MASK;
+			dst_l[i] = audio_samples_L[src_idx];
+			dst_r[i] = audio_samples_R[src_idx];
+		}
 	}
-	
+
 	audio_read_cursor = (audio_read_cursor + len) & SAMPLE_MASK;
 }
 
-function keyboard(callback, player, event){
-	switch(event.keyCode){
-		case 66:
-			if (callback === nes.buttonUp) return;
-			audio_on = !audio_on;
-			if (audio_on) {
-				playBufferedSound();
-			}
-			break;
+function keyboard(callback, player, event) {
+	switch (event.keyCode) {
 		case 38: // UP
 			callback(player, jsnes.Controller.BUTTON_UP); break;
 		case 40: // Down
@@ -113,25 +76,27 @@ function keyboard(callback, player, event){
 			callback(player, jsnes.Controller.BUTTON_SELECT); break;
 		case 13: // START --> Enter
 			callback(player, jsnes.Controller.BUTTON_START); break;
+		case 66: // MUSIC ON/OFF --> B
+			audio_on = !audio_on; break;
 		case 27: // RESET --> ESC
 			nes.reset(); break;
 		default: break;
 	}
 }
 
-function nes_init(canvas_id){
+function nes_init(canvas_id) {
 	var canvas = document.getElementById(canvas_id);
 	canvas_ctx = canvas.getContext("2d");
 	image = canvas_ctx.getImageData(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-	
+
 	canvas_ctx.fillStyle = "black";
 	canvas_ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-	
+
 	// Allocate framebuffer array.
 	var buffer = new ArrayBuffer(image.data.length);
 	framebuffer_u8 = new Uint8ClampedArray(buffer);
 	framebuffer_u32 = new Uint32Array(buffer);
-	
+
 	// Setup audio.
 	var audio_ctx = new window.AudioContext();
 	var script_processor = audio_ctx.createScriptProcessor(AUDIO_BUFFERING, 0, 2);
@@ -139,36 +104,36 @@ function nes_init(canvas_id){
 	script_processor.connect(audio_ctx.destination);
 }
 
-function nes_boot(rom_data){
+function nes_boot(rom_data) {
 	nes.loadROM(rom_data);
 	window.requestAnimationFrame(onAnimationFrame);
 }
 
-function nes_load_data(canvas_id, rom_data){
+function nes_load_data(canvas_id, rom_data) {
 	nes_init(canvas_id);
 	nes_boot(rom_data);
 }
 
-function nes_load_url(canvas_id, path){
-	document.addEventListener('keydown', (event) => {keyboard(nes.buttonDown, 1, event)});
-	document.addEventListener('keyup', (event) => {keyboard(nes.buttonUp, 1, event)});
+function nes_load_url(canvas_id, path) {
+	document.addEventListener('keydown', (event) => { keyboard(nes.buttonDown, 1, event) });
+	document.addEventListener('keyup', (event) => { keyboard(nes.buttonUp, 1, event) });
 
 	nes_init(canvas_id);
-	
+
 	var req = new XMLHttpRequest();
 	req.open("GET", path);
 	req.overrideMimeType("text/plain; charset=x-user-defined");
 	req.onerror = () => console.log(`Error loading ${path}: ${req.statusText}`);
-	
-	req.onload = function() {
+
+	req.onload = function () {
 		if (this.status === 200) {
-		nes_boot(this.responseText);
+			nes_boot(this.responseText);
 		} else if (this.status === 0) {
 			// Aborted, so ignore error
 		} else {
 			req.onerror();
 		}
 	};
-	
+
 	req.send();
 }

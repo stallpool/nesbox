@@ -2,7 +2,6 @@ const i_fs = require('fs');
 const i_path = require('path');
 const i_http = require('http');
 const i_url = require('url');
-const i_auth = require('./auth');
 const i_env = require('./env');
 
 const WebServer = {
@@ -270,33 +269,6 @@ const Web = {
          );
       }
    },
-   require_login: (fn /*req, res, options{json}*/) => {
-      // TODO: man-in-the-middle attack issue
-      return (req, res, options) => {
-         Web.read_request_json(req).then(
-            (json) => {
-               if (!i_auth.check_login(json.username, json.uuid)) return Web.e401(res);
-               options.json = json;
-               return fn(req, res, options);
-            },
-            () => Web.e400(res)
-         );
-      };
-   },
-   require_admin_login: (fn /*req, res, options{json}*/) => {
-      // TODO: man-in-the-middle attack issue
-      return (req, res, options) => {
-         Web.read_request_json(req).then(
-            (json) => {
-               if (!i_auth.check_login(json.username, json.uuid)) return Web.e401(res);
-               if (!Web.check_admin(json.username)) return Web.e401(res);
-               options.json = json;
-               return fn(req, res, options);
-            },
-            () => Web.e400(res)
-         );
-      };
-   },
    require_json_batch: (group) => {
       Object.keys(group).forEach((name) => {
          if (!group[name]) return;
@@ -306,32 +278,6 @@ const Web = {
             break;
             case 'object':
             Web.require_json_batch(group[name]);
-            break;
-         }
-      });
-   },
-   require_login_batch: (group) => {
-      Object.keys(group).forEach((name) => {
-         if (!group[name]) return;
-         switch(typeof(group[name])) {
-            case 'function':
-            group[name] = Web.require_login(group[name]);
-            break;
-            case 'object':
-            Web.require_login_batch(group[name]);
-            break;
-         }
-      });
-   },
-   require_admin_login_batch: (group) => {
-      Object.keys(group).forEach((name) => {
-         if (!group[name]) return;
-         switch(typeof(group[name])) {
-            case 'function':
-            group[name] = Web.require_admin_login(group[name]);
-            break;
-            case 'object':
-            Web.require_admin_login_batch(group[name]);
             break;
          }
       });

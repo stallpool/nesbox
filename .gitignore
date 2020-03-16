@@ -1,3 +1,4 @@
 node_modules
 client/rom/*
 local
+.DS_Store
